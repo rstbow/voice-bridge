@@ -17,9 +17,8 @@ const KNOWN = {
     'ghl-pit': 'junior-construction-ghl-pit.md',
     'acculynx-bearer': 'junior-construction-acculynx-bearer.md',
     'bridge-sql-password': 'junior-construction-bridge-sql.md',
+    'bridge-webhook-token': 'junior-construction-bridge-webhook.md',
   },
-  // shared across all clients (the bridge SQL login is multi-tenant)
-  // — until clients diverge, every client uses the same SQL login.
   // future: 'meal-club': { 'ghl-pit': 'meal-club-ghl-pit.md' }, ...
 };
 
