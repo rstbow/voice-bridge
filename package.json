@@ -6,7 +6,7 @@
   "description": "Bridge service: Amelia (GHL voice agent) -> AccuLynx contact sync. Single-tenant today (junior-construction); multi-tenant-ready data shape.",
   "main": "src/index.js",
   "scripts": {
-    "start": "node --env-file=.env src/index.js",
+    "start": "node src/index.js",
     "dev": "node --watch --env-file=.env src/index.js",
     "test:smoke": "USE_MOCK_DB=1 node --env-file=.env test/smoke.js",
     "test:acculynx": "node --env-file=.env test/acculynx-probe.js"
