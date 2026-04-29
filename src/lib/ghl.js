@@ -44,13 +44,24 @@ function authHeaders(clientId) {
 
 /**
  * Fetch a contact (with custom fields) by GHL contact id.
- * Returns the full contact object or null if 404.
+ * Returns the full contact object, or null if the contact doesn't exist.
+ *
+ * GHL quirk: 404 means not-found in some endpoints, but
+ * GET /contacts/{id} returns 400 with `error: "Contact with id ... not
+ * found"` when the id doesn't exist. Both treated as null here so the
+ * worker classifies as 'skipped' (not 'failed') — no retry burn for
+ * a missing contact.
  */
 export async function fetchContact(clientId, contactId) {
   const { locationId } = ghlConfig(clientId);
   const url = `${BASE}/contacts/${contactId}?locationId=${locationId}`;
   const res = await fetch(url, { headers: authHeaders(clientId) });
   if (res.status === 404) return null;
+  if (res.status === 400) {
+    const body = await res.text();
+    if (/not found/i.test(body)) return null;
+    throw new Error(`GHL fetchContact ${contactId} -> 400: ${body}`);
+  }
   if (!res.ok) {
     throw new Error(`GHL fetchContact ${contactId} -> ${res.status}: ${await res.text()}`);
   }
