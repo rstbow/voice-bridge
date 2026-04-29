@@ -43,12 +43,12 @@ let pool = null;
 
 async function getPool() {
   if (pool) return pool;
-  // Password resolves from team-ops/secrets/ via getCredentials so it
-  // lives in ONE place. In production, override the secrets-dir with
-  // SECRETS_ROOT pointing at a Key Vault mount or similar.
+  // Password resolves via getCredentials (env-first, file fallback).
+  // Prod (Azure): JUNIOR_CONSTRUCTION_BRIDGE_SQL_PASSWORD env var.
+  // Local: read from team-ops/secrets/junior-construction-bridge-sql.md.
   const clientId = process.env.DEFAULT_CLIENT_ID || 'junior-construction';
   const password =
-    process.env.SQL_PASSWORD || // explicit override (Azure App Service env var)
+    process.env.SQL_PASSWORD || // legacy override; prefer the per-client env var
     getCredentials(clientId, 'bridge-sql-password');
   pool = await sql.connect({
     server: process.env.SQL_SERVER || 'vs-ims.database.windows.net',

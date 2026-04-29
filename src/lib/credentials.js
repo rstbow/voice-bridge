@@ -40,13 +40,44 @@ function parseSecretFile(filePath) {
  * @param {string} clientId  e.g. 'junior-construction'
  * @param {string} name      e.g. 'ghl-pit', 'acculynx-bearer'
  * @returns {string}         the secret value
+ *
+ * Resolution order:
+ *  1. Env var (Azure App Service Configuration) — uppercased, dashes
+ *     to underscores: 'junior-construction' + 'ghl-pit' →
+ *     `JUNIOR_CONSTRUCTION_GHL_PIT`. This is how prod resolves.
+ *  2. Secret markdown file in team-ops/secrets/. Local dev only.
+ *
+ * Env var path is checked first so prod doesn't depend on
+ * team-ops/secrets/ existing on disk.
  */
 export function getCredentials(clientId, name) {
+  const envKey =
+    clientId.replace(/-/g, '_').toUpperCase() +
+    '_' +
+    name.replace(/-/g, '_').toUpperCase();
+  if (process.env[envKey]) return process.env[envKey];
+
+  // Fall back to file (local dev).
   const clientMap = KNOWN[clientId];
-  if (!clientMap) throw new Error(`Unknown clientId: ${clientId}`);
+  if (!clientMap) {
+    throw new Error(
+      `getCredentials(${clientId}, ${name}): not in env (${envKey}) ` +
+      `and clientId unknown for file fallback`
+    );
+  }
   const file = clientMap[name];
   if (!file) {
-    throw new Error(`Unknown secret '${name}' for client '${clientId}'`);
+    throw new Error(
+      `getCredentials(${clientId}, ${name}): not in env (${envKey}) ` +
+      `and no file mapping`
+    );
   }
-  return parseSecretFile(path.join(SECRETS_ROOT, file));
+  try {
+    return parseSecretFile(path.join(SECRETS_ROOT, file));
+  } catch (err) {
+    throw new Error(
+      `getCredentials(${clientId}, ${name}): not in env (${envKey}) ` +
+      `and file read failed: ${err.message}`
+    );
+  }
 }
