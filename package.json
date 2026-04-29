@@ -1,0 +1,24 @@
+{
+  "name": "junior-construction-ghl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bridge service: Amelia (GHL voice agent) -> AccuLynx contact sync. Single-tenant today (junior-construction); multi-tenant-ready data shape.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "dev": "node --watch --env-file=.env src/index.js",
+    "test:smoke": "USE_MOCK_DB=1 node --env-file=.env test/smoke.js",
+    "test:acculynx": "node --env-file=.env test/acculynx-probe.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "mssql": "^11.0.1",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0"
+  }
+}
