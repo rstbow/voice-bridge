@@ -20,6 +20,39 @@ async function main() {
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
+
+  // TEMPORARY: SQL connectivity diagnostic. Returns "ok" + masked
+  // server/db identification, or the error. Revert once v1 is stable.
+  app.get('/diag/sql', async (_req, res) => {
+    try {
+      const events = await db.fetchPendingEvents(
+        {
+          brandUid: process.env.JUNIOR_CONSTRUCTION_BRAND_UID || 'unset',
+          agentName: 'amelia',
+          destinationCrm: 'acculynx',
+        },
+        1
+      );
+      res.json({
+        ok: true,
+        server: process.env.SQL_SERVER || 'vs-ims.database.windows.net',
+        database: process.env.SQL_DATABASE || 'vs-ims-staging',
+        user: process.env.SQL_USER || 'alf_bridge_app_user',
+        pendingCount: events.length,
+        brandUidSet: !!process.env.JUNIOR_CONSTRUCTION_BRAND_UID,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err.message,
+        code: err.code || null,
+        number: err.number || null,
+        sqlPasswordSet: !!process.env.JUNIOR_CONSTRUCTION_BRIDGE_SQL_PASSWORD,
+        brandUidSet: !!process.env.JUNIOR_CONSTRUCTION_BRAND_UID,
+      });
+    }
+  });
+
   app.use('/webhooks', makeWebhookRouter({ db }));
 
   app.use((err, _req, res, _next) => {

@@ -53,8 +53,15 @@ export function makeWebhookRouter({ db }) {
       );
       res.status(202).json({ ok: true, eventId });
     } catch (err) {
-      logger.error({ err: err.message }, 'webhook: insert failed');
-      res.status(500).json({ error: 'insert_failed' });
+      logger.error({ err: err.message, stack: err.stack }, 'webhook: insert failed');
+      // TEMPORARY: surface error message in response while bringing v1 online.
+      // Revert once stable.
+      res.status(500).json({
+        error: 'insert_failed',
+        message: err.message,
+        code: err.code || null,
+        number: err.number || null,
+      });
     }
   });
 
