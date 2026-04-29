@@ -13,17 +13,18 @@ const CLIENT_GHL_CONFIG = {
   'junior-construction': {
     locationId: 'J9HRSqqxobX5ettLO65y',
     agentId: '69bd6115a89980f2d8616e5e',
-    // contactFieldId map — populated from Amelia's DATA_EXTRACTION
-    // actions, see snapshots/ghl/2026-04-28-amelia-agent-config.json
-    fields: {
-      firstName:    'KwGhxpeC1yhxPBOCYvya',
-      lastName:     'OJ2dZ7d6NMkCmCs12RM8',
-      email:        'MFEJyqBJLI2IKedUAcUg',
-      reasonForCall:'dWYNIaDlVA2N74GB7isk',
-      projectDetails:'MgJdFanPweShnsf11xPK',
-      projectTimeline:'onMhXjrUUNEExSVTwaiS',
-      warrantyFlag: 'ZIf0RjuhFmLOK9TfElfX',
-      callSummary:  'mjRJm6GkLWajVA8vYZkw',
+    // Custom-field IDs Amelia populates via DATA_EXTRACTION actions.
+    // Standard GHL contact fields (firstName, lastName, email, phone,
+    // address1, city, state, postalCode) are read directly off the
+    // contact response — not via contactFieldId lookup. The IN_CALL_*
+    // extractions target those standard fields under the hood.
+    customFields: {
+      reasonForCall:   'dWYNIaDlVA2N74GB7isk',
+      projectDetails:  'MgJdFanPweShnsf11xPK',
+      projectTimeline: 'onMhXjrUUNEExSVTwaiS',
+      warrantyFlag:    'ZIf0RjuhFmLOK9TfElfX',
+      callSummary:     'mjRJm6GkLWajVA8vYZkw',
+      callbackPhone:   '1snk4vUsrHhOhe7DewYR', // added 2026-04-29 by Alf
     },
   },
 };
@@ -70,23 +71,45 @@ export async function fetchContact(clientId, contactId) {
 }
 
 /**
- * Resolve Amelia's DATA_EXTRACTION custom-field values from a contact.
- * Returns a flat object keyed by friendly name from CLIENT_GHL_CONFIG.fields.
+ * Resolve Amelia's DATA_EXTRACTION values from a GHL contact.
+ *
+ * Returns a flat object with both the structured custom-field values
+ * (Amelia's DATA_EXTRACTION actions) and the standard contact fields
+ * (firstName, lastName, email, phone, address1/city/state/postalCode)
+ * which GHL populates either natively (caller ID for phone) or via
+ * IN_CALL_DATA_EXTRACTION actions targeting standard field IDs.
  */
 export function extractAmeliaFields(clientId, contact) {
-  const { fields } = ghlConfig(clientId);
+  const { customFields: cfMap } = ghlConfig(clientId);
   const out = {};
-  const customFields = contact?.customFields || contact?.customField || [];
+
+  // Custom fields (DATA_EXTRACTION outputs).
+  const cfList = contact?.customFields || contact?.customField || [];
   const byId = {};
-  for (const f of customFields) byId[f.id] = f.value ?? f.fieldValue;
-  for (const [friendly, fieldId] of Object.entries(fields)) {
+  for (const f of cfList) byId[f.id] = f.value ?? f.fieldValue;
+  for (const [friendly, fieldId] of Object.entries(cfMap)) {
     out[friendly] = byId[fieldId] ?? null;
   }
-  // Standard contact fields (in case Amelia didn't fill them via custom fields).
-  out.standardFirstName = contact?.firstName ?? out.firstName;
-  out.standardLastName  = contact?.lastName  ?? out.lastName;
-  out.standardEmail     = contact?.email     ?? out.email;
-  out.phoneE164         = contact?.phone     ?? null;
+
+  // Standard contact fields. These are top-level on the contact object.
+  out.firstName  = contact?.firstName  ?? null;
+  out.lastName   = contact?.lastName   ?? null;
+  out.email      = contact?.email      ?? null;
+  // Phone resolution: caller ID native (best) → callback-phone extraction (fallback).
+  out.phoneE164  = contact?.phone || out.callbackPhone || null;
+
+  // Address (standard GHL contact fields, populated by Amelia's
+  // IN_CALL_DATA_EXTRACTION Street Address / Your City / Your State / ZipCode).
+  out.address    = {
+    street1:    contact?.address1   ?? null,
+    street2:    contact?.address2   ?? null,
+    city:       contact?.city       ?? null,
+    state:      contact?.state      ?? null, // typically a 2-letter abbr OR full name
+    postalCode: contact?.postalCode ?? null,
+    country:    contact?.country    ?? null, // typically 'US' or 'United States'
+  };
+  out.hasAddress = !!(out.address.street1 || out.address.city || out.address.postalCode);
+
   return out;
 }
 

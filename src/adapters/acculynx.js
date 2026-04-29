@@ -3,6 +3,7 @@
 // the same interface (search, create, update).
 
 import { getCredentials } from '../lib/credentials.js';
+import { ACCULYNX_US_STATES } from '../lib/states.js';
 
 const BASE = 'https://api.acculynx.com/api/v2';
 
@@ -85,12 +86,46 @@ export async function findContactByPhone(clientId, phoneE164) {
 }
 
 /**
+ * Build a structured AccuLynx mailingAddress from a GHL address object.
+ * GHL state can come as 2-letter abbr ("MO") or full name ("Missouri").
+ * Returns null if no usable street/city/zip is present.
+ */
+function buildMailingAddress(address) {
+  if (!address) return null;
+  const { street1, street2, city, state, postalCode, country } = address;
+  if (!street1 && !city && !postalCode) return null;
+
+  // Resolve state -> AccuLynx state.id by 2-letter abbr.
+  let stateRef = null;
+  if (state) {
+    const abbr = state.length === 2 ? state.toUpperCase()
+      : Object.entries(ACCULYNX_US_STATES).find(
+          ([, v]) => v.name.toLowerCase() === state.toLowerCase()
+        )?.[0];
+    if (abbr && ACCULYNX_US_STATES[abbr]) {
+      stateRef = { id: ACCULYNX_US_STATES[abbr].id };
+    }
+  }
+
+  const out = {
+    street1: street1 || '',
+    street2: street2 || '',
+    city: city || '',
+    zipCode: postalCode || '',
+    country: { id: 1 }, // default US — country mapping can come later
+  };
+  if (stateRef) out.state = stateRef;
+  return out;
+}
+
+/**
  * Create a new AccuLynx contact.
  * Returns the created contact's id.
  */
 export async function createContact(clientId, contactData) {
   const cfg = acculynxConfig(clientId);
   const url = `${BASE}/contacts`;
+  const mailingAddress = buildMailingAddress(contactData.address);
   const body = {
     contactTypeIds: [
       contactData.contactTypeId || cfg.defaultContactTypeForLead,
@@ -104,10 +139,8 @@ export async function createContact(clientId, contactData) {
     phoneNumbers: contactData.phoneE164
       ? [{ number: contactData.phoneE164, type: 'Mobile', primary: true }]
       : [],
-    // notes / call-summary handled separately if AccuLynx exposes a notes
-    // sub-resource; otherwise inline as 'description' or similar.
-    // TODO(2026-04-29): confirm field name — `description`, `notes`,
-    // or sub-resource `/contacts/{id}/notes`.
+    ...(mailingAddress && { mailingAddress }),
+    // TODO(2026-04-29): confirm field name — `description` vs sub-resource.
     ...(contactData.notes ? { description: contactData.notes } : {}),
   };
   const res = await fetch(url, {

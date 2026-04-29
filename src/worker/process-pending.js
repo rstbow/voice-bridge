@@ -68,10 +68,11 @@ async function processOneEvent({ db, clientId, key, evt }) {
   const fields = extractAmeliaFields(clientId, ghlContact);
 
   const acculynxData = {
-    firstName: fields.firstName || fields.standardFirstName || '',
-    lastName: fields.lastName || fields.standardLastName || '',
-    email: fields.email || fields.standardEmail || null,
+    firstName: fields.firstName || '',
+    lastName: fields.lastName || '',
+    email: fields.email || null,
     phoneE164: fields.phoneE164,
+    address: fields.hasAddress ? fields.address : null,
     notes: fields.callSummary || fields.reasonForCall || null,
   };
 
