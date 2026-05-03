@@ -11,7 +11,7 @@
 
 import { logger } from '../lib/logger.js';
 import { fetchContact, extractAmeliaFields } from '../lib/ghl.js';
-import { createContact, updateContact } from '../adapters/acculynx.js';
+import { createContact, createJob, updateContact } from '../adapters/acculynx.js';
 import { getBridgeKey } from '../lib/client.js';
 
 export async function processPending({ db, clientId, batchSize = 20, maxRetries = 5 }) {
@@ -72,8 +72,13 @@ async function processOneEvent({ db, clientId, key, evt }) {
     lastName: fields.lastName || '',
     email: fields.email || null,
     phoneE164: fields.phoneE164,
+    callbackPhone: fields.callbackPhone || null,
     address: fields.hasAddress ? fields.address : null,
-    notes: fields.callSummary || fields.reasonForCall || null,
+    // Reason / summary cannot be stored on AccuLynx Contact/Job via
+    // public API (no notes/description field). Used only for jobName
+    // when creating the Job below.
+    reasonForCall: fields.reasonForCall || null,
+    callSummary: fields.callSummary || null,
   };
 
   // 1 (continued): update existing mapping
@@ -117,14 +122,51 @@ async function processOneEvent({ db, clientId, key, evt }) {
     };
   }
 
-  // 3. Create new
-  const newId = await createContact(clientId, acculynxData);
+  // 3. Create new contact, then a Job in 'Lead' stage tied to it.
+  const newContactId = await createContact(clientId, acculynxData);
+
+  // jobName surfaces in AccuLynx's leads list. Use a short reason summary
+  // when available (server may override to contact name in some cases).
+  const jobName = buildJobName(acculynxData);
+  let newJobId = null;
+  try {
+    newJobId = await createJob(clientId, {
+      contactId: newContactId,
+      address: acculynxData.address,
+      jobName,
+    });
+  } catch (err) {
+    // Don't fail the whole sync if Job creation breaks — the Contact
+    // already landed. Log + continue. Junior Construction can promote
+    // manually from Contact in the UI as a fallback.
+    logger.error(
+      { err: err.message, contactId: newContactId },
+      'worker: createJob failed (contact landed)'
+    );
+  }
+
   await db.upsertMapping({
     ...key,
     sourceContactId: ghlContactId,
-    destinationContactId: newId,
+    destinationContactId: newContactId,
     phoneE164: acculynxData.phoneE164,
     lastEventId: evt.event_id,
   });
-  return { status: 'synced', destinationContactId: newId, note: 'created' };
+  return {
+    status: 'synced',
+    destinationContactId: newContactId,
+    note: newJobId ? `created contact + job ${newJobId}` : 'created contact (job failed)',
+  };
+}
+
+/**
+ * Build a useful jobName from the call data. AccuLynx surfaces this in
+ * the Leads list. Server may silently override; we send our best.
+ */
+function buildJobName({ firstName, lastName, reasonForCall }) {
+  const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+  if (reasonForCall && name) {
+    return `${name} — ${reasonForCall}`.slice(0, 200);
+  }
+  return reasonForCall || name || 'Amelia voice intake';
 }

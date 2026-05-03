@@ -12,11 +12,20 @@ const BASE = 'https://api.acculynx.com/api/v2';
 // team-ops/projects/junior-construction/snapshots/acculynx/2026-04-28-contact-types.json
 //
 // Decision (Randy 2026-04-28): new Amelia leads land as 'General Contact'.
+// Decision (Randy 2026-05-03): also create a Job in 'Lead' stage tied to the
+// contact, since AccuLynx UI surfaces leads in the Jobs list, not the
+// Contacts list. AccuLynx public API has no notes/description field on
+// Contact or Job — reason-for-call stays visible only via GHL.
 const CLIENT_ACCULYNX_CONFIG = {
   'junior-construction': {
     contactTypeIdGeneralContact: '64fac10a-95c0-46b0-b521-3422bbf77154',
     contactTypeIdCustomer:        '52ba94c5-3ecf-4e7f-90cd-a91de12a72f5',
     defaultContactTypeForLead:    '64fac10a-95c0-46b0-b521-3422bbf77154',
+    // Lead source GUID — from /company-settings/leads/lead-sources.
+    // Using "Other" for now; AccuLynx public API doesn't allow creating
+    // a custom "Voice AI" source. Junior Construction admin can add one
+    // via the AccuLynx UI later if they want richer attribution.
+    leadSourceIdOther:            'f4a298f6-bf41-e511-80c8-0025909114ef',
   },
 };
 
@@ -119,6 +128,45 @@ function buildMailingAddress(address) {
 }
 
 /**
+ * Build the phoneNumbers[] array for an AccuLynx contact POST. Caller
+ * ID becomes the primary Mobile entry; an additional callback number
+ * (if different) is added as a secondary entry.
+ */
+function buildPhoneNumbers({ phoneE164, callbackPhone }) {
+  const out = [];
+  if (phoneE164) {
+    out.push({ number: phoneE164, type: 'Mobile', primary: true });
+  }
+  if (callbackPhone && callbackPhone !== phoneE164) {
+    out.push({
+      number: callbackPhone,
+      type: 'Mobile',
+      primary: out.length === 0, // primary only if no caller ID
+    });
+  }
+  return out;
+}
+
+/**
+ * Build the locationAddress for AccuLynx Job POST. Note this differs
+ * from contact.mailingAddress — Job uses STRING for state/country,
+ * Contact uses {id} object.
+ */
+function buildLocationAddress(address) {
+  if (!address) return null;
+  const { street1, street2, city, state, postalCode, country } = address;
+  if (!street1 && !city && !postalCode) return null;
+  return {
+    street1: street1 || '',
+    street2: street2 || '',
+    city: city || '',
+    state: state || '',
+    zipCode: postalCode || '',
+    country: country || 'US',
+  };
+}
+
+/**
  * Create a new AccuLynx contact.
  * Returns the created contact's id.
  */
@@ -126,6 +174,7 @@ export async function createContact(clientId, contactData) {
   const cfg = acculynxConfig(clientId);
   const url = `${BASE}/contacts`;
   const mailingAddress = buildMailingAddress(contactData.address);
+  const phoneNumbers = buildPhoneNumbers(contactData);
   const body = {
     contactTypeIds: [
       contactData.contactTypeId || cfg.defaultContactTypeForLead,
@@ -136,12 +185,8 @@ export async function createContact(clientId, contactData) {
     emailAddresses: contactData.email
       ? [{ address: contactData.email, type: 'Personal', primary: true }]
       : [],
-    phoneNumbers: contactData.phoneE164
-      ? [{ number: contactData.phoneE164, type: 'Mobile', primary: true }]
-      : [],
+    phoneNumbers,
     ...(mailingAddress && { mailingAddress }),
-    // TODO(2026-04-29): confirm field name — `description` vs sub-resource.
-    ...(contactData.notes ? { description: contactData.notes } : {}),
   };
   const res = await fetch(url, {
     method: 'POST',
@@ -154,6 +199,43 @@ export async function createContact(clientId, contactData) {
   }
   const json = await res.json();
   return json.id || json.contactId || json;
+}
+
+/**
+ * Create a new AccuLynx Job tied to an existing contact.
+ *
+ * `currentMilestone` defaults to "Lead" naturally on creation — no
+ * special config needed. Job becomes visible in AccuLynx UI's leads
+ * list immediately.
+ *
+ * `jobName` is what AccuLynx surfaces in the leads list. Server may
+ * silently override to contact's name in some cases; we still pass
+ * a useful default so when it's honored the office can scan the
+ * list at a glance.
+ *
+ * Returns the created job's id.
+ */
+export async function createJob(clientId, { contactId, address, jobName }) {
+  const cfg = acculynxConfig(clientId);
+  const url = `${BASE}/jobs`;
+  const locationAddress = buildLocationAddress(address);
+  const body = {
+    contact: { id: contactId },
+    leadSource: { id: cfg.leadSourceIdOther },
+    ...(jobName && { jobName }),
+    ...(locationAddress && { locationAddress }),
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: authHeaders(clientId),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`AccuLynx createJob ${res.status}: ${txt}`);
+  }
+  const json = await res.json();
+  return json.id || json;
 }
 
 /**
